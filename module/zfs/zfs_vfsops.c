@@ -2435,21 +2435,10 @@ zfs_vfs_root(struct mount *mp, vnode_t **vpp, __unused vfs_context_t context)
  * Note, if 'unmounting' if FALSE, we return with the 'z_teardown_lock'
  * and 'z_teardown_inactive_lock' held.
  */
-extern uint64_t vnop_num_reclaims;
 static int
 zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 {
 	znode_t	*zp;
-   /*
-     * We have experienced deadlocks with dmu_recv_end happening between
-     * suspend_fs() and resume_fs(). Clearly something is not quite ready
-     * so we will wait for pools to be synced first.
-     * It could also be related to the reclaim-list size.
-     * This is considered a temporary solution until we can work out
-     * the full issue.
-     */
-
-    while(vnop_num_reclaims > 0) delay(hz>>1);
 
  	/*
 	 * If someone has not already unmounted this file system,
@@ -2672,13 +2661,11 @@ zfs_vfs_unmount(struct mount *mp, int mntflags, vfs_context_t context)
 	}
 #endif
 
-    while(vnop_num_reclaims > 0) delay(hz>>1);
-
     dprintf("Signalling reclaim sync\n");
 	/* We just did final sync, tell reclaim to mop it up */
     cv_signal(&zfsvfs->z_reclaim_thr_cv);
-    /* Not the classiest sync control ... */
-    delay(hz);
+    /* Make sure all reclaims are complete ... */
+    while(!list_is_empty(&zfsvfs->z_reclaim_znodes)) delay(hz>>1);
 
 
 #endif
@@ -2998,6 +2985,15 @@ zfs_suspend_fs(zfsvfs_t *zfsvfs)
 
 	if ((error = zfsvfs_teardown(zfsvfs, B_FALSE)) != 0)
 		return (error);
+#ifdef __APPLE__
+    /* Make sure reclaim has stopped */
+    while(!list_is_empty(&zfsvfs->z_reclaim_znodes)) delay(hz>>1);
+
+    /* Suspend reclaim */
+    mutex_enter(&zfsvfs->z_reclaim_list_lock);
+    zfsvfs->z_reclaim_suspended = B_TRUE;
+    mutex_exit(&zfsvfs->z_reclaim_list_lock);
+#endif
 
 	return (0);
 }
@@ -3072,6 +3068,15 @@ zfs_resume_fs(zfsvfs_t *zsb, const char *osname)
 		}
 	}
 	mutex_exit(&zsb->z_znodes_lock);
+
+
+#ifdef __APPLE__
+    /* resume reclaim */
+    mutex_enter(&zsb->z_reclaim_list_lock);
+    zsb->z_reclaim_suspended = B_FALSE;
+    mutex_exit(&zsb->z_reclaim_list_lock);
+#endif
+
 
 bail:
 	/* release the VFS ops */

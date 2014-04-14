@@ -1427,6 +1427,8 @@ void vnop_reclaim_thread(void *arg)
         count = 0;
 #endif
 
+
+    suspended:
         /* Allow us to quit, since list is empty */
         if (zfsvfs->z_reclaim_thread_exit == TRUE) break;
 
@@ -1443,6 +1445,11 @@ void vnop_reclaim_thread(void *arg)
         delay(hz>>1);
 
 #endif
+
+        /* If filesystem is suspended, do not perform reclaims */
+        if (zfsvfs->z_reclaim_suspended) goto suspended;
+
+
     } // forever
 
 #ifdef VERBOSE_RECLAIM
