@@ -2983,8 +2983,6 @@ zfs_suspend_fs(zfsvfs_t *zfsvfs)
 {
 	int error;
 
-	if ((error = zfsvfs_teardown(zfsvfs, B_FALSE)) != 0)
-		return (error);
 #ifdef __APPLE__
     /* Make sure reclaim has stopped */
     while(!list_is_empty(&zfsvfs->z_reclaim_znodes)) delay(hz>>1);
@@ -2994,6 +2992,9 @@ zfs_suspend_fs(zfsvfs_t *zfsvfs)
     zfsvfs->z_reclaim_suspended = B_TRUE;
     mutex_exit(&zfsvfs->z_reclaim_list_lock);
 #endif
+
+	if ((error = zfsvfs_teardown(zfsvfs, B_FALSE)) != 0)
+		return (error);
 
 	return (0);
 }
