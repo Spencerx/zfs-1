@@ -1403,6 +1403,12 @@ zfsvfs_free(zfsvfs_t *zfsvfs)
 
 	zfs_fuid_destroy(zfsvfs);
 
+    /* Make 100% sure the reclaims are done */
+    /* Make sure all reclaims are complete ... */
+    printf("Waiting for reclaims ... \n");
+    while(!list_is_empty(&zfsvfs->z_reclaim_znodes)) delay(hz>>1);
+    printf("Waiting for reclaims done \n");
+
     dprintf("stopping reclaim thread\n");
 	mutex_enter(&zfsvfs->z_reclaim_thr_lock);
     zfsvfs->z_reclaim_thread_exit = TRUE;
@@ -2664,8 +2670,6 @@ zfs_vfs_unmount(struct mount *mp, int mntflags, vfs_context_t context)
     dprintf("Signalling reclaim sync\n");
 	/* We just did final sync, tell reclaim to mop it up */
     cv_signal(&zfsvfs->z_reclaim_thr_cv);
-    /* Make sure all reclaims are complete ... */
-    while(!list_is_empty(&zfsvfs->z_reclaim_znodes)) delay(hz>>1);
 
 
 #endif
