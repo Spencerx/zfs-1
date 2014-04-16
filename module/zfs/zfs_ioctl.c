@@ -4281,6 +4281,7 @@ zfs_ioc_recv(zfs_cmd_t *zc)
             /* online recv */
             int end_err;
 
+            atomic_add_64(&zsb->z_vnode_create_depth, 1);
             error = zfs_suspend_fs(zsb);
             /*
              * If the suspend fails, then the recv_end will
@@ -4290,6 +4291,7 @@ zfs_ioc_recv(zfs_cmd_t *zc)
             if (error == 0)
                 error = zfs_resume_fs(zsb, tofs);
             error = error ? error : end_err;
+            atomic_sub_64(&zsb->z_vnode_create_depth, 1);
             //deactivate_super(zsb->z_sb);
         } else {
             error = dmu_recv_end(&drc, zsb);
