@@ -1385,7 +1385,7 @@ zfsvfs_setup(zfsvfs_t *zfsvfs, boolean_t mounting)
 }
 
 extern krwlock_t zfsvfs_lock; /* in zfs_znode.c */
-
+extern uint64_t vnop_num_reclaims;
 void
 zfsvfs_free(zfsvfs_t *zfsvfs)
 {
@@ -1405,8 +1405,8 @@ zfsvfs_free(zfsvfs_t *zfsvfs)
 
     /* Make 100% sure the reclaims are done */
     /* Make sure all reclaims are complete ... */
-    printf("Waiting for reclaims ... \n");
-    while(!list_is_empty(&zfsvfs->z_reclaim_znodes)) delay(hz>>1);
+    printf("Waiting for reclaims ... %llu\n", vnop_num_reclaims);
+    while(vnop_num_reclaims) delay(hz>>1);
     printf("Waiting for reclaims done \n");
 
     dprintf("stopping reclaim thread\n");

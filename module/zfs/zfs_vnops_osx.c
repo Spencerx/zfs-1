@@ -1479,6 +1479,10 @@ zfs_vnop_reclaim(
 
     dprintf("+vnop_reclaim %p\n", vp);
 
+#ifdef _KERNEL
+    atomic_inc_64(&vnop_num_reclaims);
+#endif
+
 	/* Destroy the vm object and flush associated pages. */
 #ifndef __APPLE__
 	vnode_destroy_vobject(vp);
@@ -1508,10 +1512,6 @@ zfs_vnop_reclaim(
     list_insert_tail(&zfsvfs->z_reclaim_znodes, zp);
     zp->z_reclaimed = B_TRUE;
     mutex_exit(&zfsvfs->z_reclaim_list_lock);
-
-#ifdef _KERNEL
-    atomic_inc_64(&vnop_num_reclaims);
-#endif
 
 #if 1
     if (!has_warned && vnop_num_reclaims > 20000) {
