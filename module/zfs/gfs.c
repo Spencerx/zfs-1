@@ -1198,8 +1198,7 @@ gfs_vop_readdir(ap)
 		 */
 		ncookies = uio_resid(uiop) / (sizeof(dirent64_t) - sizeof(((dirent64_t *)NULL)->d_name) + 1);
 
-		MALLOC(cookies, u_long *, ncookies * sizeof(u_long),
-               M_TEMP, M_WAITOK);
+		cookies = kmem_alloc(ncookies * sizeof(u_long), KM_SLEEP);
 		a_cookies = cookies;
 		*ap->a_numdirent = ncookies;
 	}
@@ -1218,7 +1217,7 @@ gfs_vop_readdir(ap)
 
 
     if (cookies)
-		FREE(a_cookies, M_TEMP);
+        kmem_free(cookies, ncookies * sizeof(u_long));
 
 	return (error);
 }

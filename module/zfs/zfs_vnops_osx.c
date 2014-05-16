@@ -366,7 +366,7 @@ zfs_vnop_lookup(
      * case we need to copy it out to null-terminate.
      */
     if (cnp->cn_nameptr[cnp->cn_namelen] != 0) {
-        MALLOC(filename, char *, cnp->cn_namelen+1, M_TEMP, M_WAITOK);
+        filename = kmem_alloc(cnp->cn_namelen + 1, KM_SLEEP);
         if (filename == NULL) return ENOMEM;
         bcopy(cnp->cn_nameptr, filename, cnp->cn_namelen);
         filename[cnp->cn_namelen] = '\0';
@@ -456,7 +456,7 @@ zfs_vnop_lookup(
         zfs_finder_keep_hardlink(*ap->a_vpp,
                                  filename ? filename : cnp->cn_nameptr);
     if (filename)
-        FREE(filename, M_TEMP);
+        kmem_free(filename, cnp->cn_namelen + 1);
 
     if (!error && ap->a_vpp && *ap->a_vpp && VTOZ(*ap->a_vpp))
         zfs_vnop_throttle_reclaim(VTOZ(*ap->a_vpp)->z_zfsvfs);
@@ -2420,7 +2420,7 @@ zfs_vnop_readdirattr(
     maxsize = fixedsize;
     if (alp->commonattr & ATTR_CMN_NAME)
         maxsize += ZAP_MAXNAMELEN + 1;
-    MALLOC(attrbufptr, void *, maxsize, M_TEMP, M_WAITOK);
+    attrbufptr = kmem_alloc(maxsize, KM_SLEEP);
     if (attrbufptr == NULL) {
         return (ENOMEM);
     }
@@ -2583,7 +2583,7 @@ zfs_vnop_readdirattr(
     zap_cursor_fini(&zc);
 
     if (attrbufptr) {
-        FREE(attrbufptr, M_TEMP);
+        kmem_free(attrbufptr, maxsize);
     }
     if (error == ENOENT) {
         error = 0;
