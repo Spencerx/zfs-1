@@ -568,6 +568,9 @@ zvol_create_minor(const char *name)
 			zil_destroy(dmu_objset_zil(os), B_FALSE);
 		else
 			zil_replay(os, zv, zvol_replay_vector);
+
+		/* Enable write cache */
+		zv->zv_flags |= ZVOL_WCE;
 	}
 
     // Call IOKit to create a new ZVOL device, we like the size being
@@ -2028,7 +2031,13 @@ zvol_get_volume_wce(void *minor_hdl)
 {
 	zvol_state_t *zv = minor_hdl;
 
-	return ((zv->zv_flags & ZVOL_WCE) ? 1 : 0);
+	if ((zv->zv_flags & ZVOL_WCE) &&
+		! (zv->zv_flags & ZVOL_RDONLY)) {
+
+		return (1);
+	} else {
+		return (0);
+	}
 }
 
 /*
