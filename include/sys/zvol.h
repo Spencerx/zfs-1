@@ -96,6 +96,8 @@ extern void zvol_rename_minors(const char *oldname, const char *newname);
 extern int zvol_set_volsize(const char *, uint64_t);
 extern int zvol_set_volblocksize(const char *, uint64_t);
 extern int zvol_set_snapdev(const char *, uint64_t);
+extern int zvol_get_volume_wce(void *);
+extern int zvol_set_volume_wce(void *, boolean_t);
 
 extern int zvol_open(dev_t dev, int flag, int otyp, struct proc *p);
 extern int zvol_close(dev_t dev, int flag, int otyp, struct proc *p);

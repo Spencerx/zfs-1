@@ -2032,6 +2032,42 @@ zvol_get_volume_wce(void *minor_hdl)
 }
 
 /*
+ * Set the current WCE setting via an external caller.
+ * The WCE setting can change while the volume is open.
+ * Styled after DKIOCSETWCE and zvol_get_volume_wce
+ */
+int
+zvol_set_volume_wce(void *minor_hdl, boolean_t wce)
+{
+	zvol_state_t *zv = minor_hdl;
+
+	/*
+	 * Moved from below mutex enter,
+	 *	so disabled mutex_exit
+	 */
+	if (zv == NULL) {
+	 /* mutex_exit(&spa_namespace_lock); */
+		return (ENXIO);
+	}
+
+	if(zv->zv_total_opens == 0)
+		return (ENXIO);
+
+	mutex_enter(&spa_namespace_lock);
+
+	if (wce) {
+		zv->zv_flags |= ZVOL_WCE;
+		mutex_exit(&spa_namespace_lock);
+	} else {
+		zv->zv_flags &= ~ZVOL_WCE;
+		mutex_exit(&spa_namespace_lock);
+		zil_commit(zv->zv_zilog, ZVOL_OBJ);
+	}
+
+	return (0);
+}
+
+/*
  * Entry point for external callers to zvol_log_write
  */
 void

@@ -408,18 +408,16 @@ IOReturn  net_lundman_zfs_zvol_device::reportWriteProtection(bool *isWriteProtec
 
 IOReturn  net_lundman_zfs_zvol_device::getWriteCacheState(bool *enabled)
 {
-    dprintf("getCacheState\n");
-    *enabled = true;
-    return kIOReturnSuccess;
+	IOLog("getWriteCacheState\n");
+	*enabled = (zvol_get_volume_wce(zv) == 1);
+	return (kIOReturnSuccess);
 }
 
 IOReturn  net_lundman_zfs_zvol_device::setWriteCacheState(bool enabled)
 {
-    dprintf("setWriteCache\n");
-    return kIOReturnSuccess;
+	IOLog("setWriteCacheState\n");
+	if (zvol_set_volume_wce(zv, enabled) == 0)
+		return (kIOReturnSuccess);
+	else
+		return (kIOReturnUnsupported);
 }
-
-
-// getMediaBlockSize()
-//getDeviceTypeName
-// 	status = messageClients ( type, arg, sizeof ( IOMediaState ) );
