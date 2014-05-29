@@ -408,14 +408,14 @@ IOReturn  net_lundman_zfs_zvol_device::reportWriteProtection(bool *isWriteProtec
 
 IOReturn  net_lundman_zfs_zvol_device::getWriteCacheState(bool *enabled)
 {
-	IOLog("getWriteCacheState\n");
+	dprintf("getWriteCacheState\n");
 	*enabled = (zvol_get_volume_wce(zv) == 1);
 	return (kIOReturnSuccess);
 }
 
 IOReturn  net_lundman_zfs_zvol_device::setWriteCacheState(bool enabled)
 {
-	IOLog("setWriteCacheState\n");
+	dprintf("setWriteCacheState\n");
 	if (zvol_set_volume_wce(zv, enabled) == 0)
 		return (kIOReturnSuccess);
 	else
