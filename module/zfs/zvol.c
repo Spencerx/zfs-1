@@ -2745,8 +2745,57 @@ zvol_create_minors(const char *name)
     return (0);
 }
 
+#if 0
+/*
+ * Dispatch a task to the appropriate taskq for the ZFS I/O type and priority.
+ * Note that a type may have multiple discrete taskqs to avoid lock contention
+ * on the taskq itself. In that case we choose which taskq at random by using
+ * the low bits of gethrtime().
+ */
+void
+spa_taskq_dispatch_ent(zvol_state_t *zv, zio_type_t t, zio_taskq_type_t q,
+					   task_func_t *func, void *arg, uint_t flags, taskq_ent_t *ent)
+{
+	spa_taskqs_t *tqs = &spa->spa_zio_taskq[t][q];
+	taskq_t *tq;
 
+	ASSERT3P(tqs->stqs_taskq, !=, NULL);
+	ASSERT3U(tqs->stqs_count, !=, 0);
 
+	if (tqs->stqs_count == 1) {
+		tq = tqs->stqs_taskq[0];
+	} else {
+		tq = tqs->stqs_taskq[((uint64_t)gethrtime()) % tqs->stqs_count];
+	}
+	//taskq_dispatch_ent(tq, func, arg, flags, ent);
+	taskq_dispatch(tq, func, arg, flags);
+}
+
+/*
+ * Same as spa_taskq_dispatch_ent() but block on the task until completion.
+ */
+void
+spa_taskq_dispatch_sync(zvol_state_t *zv, zio_type_t t, zio_taskq_type_t q,
+						task_func_t *func, void *arg, uint_t flags)
+{
+	spa_taskqs_t *tqs = &spa->spa_zio_taskq[t][q];
+	taskq_t *tq;
+	taskqid_t id;
+
+	ASSERT3P(tqs->stqs_taskq, !=, NULL);
+	ASSERT3U(tqs->stqs_count, !=, 0);
+
+	if (tqs->stqs_count == 1) {
+		tq = tqs->stqs_taskq[0];
+	} else {
+		tq = tqs->stqs_taskq[((uint64_t)gethrtime()) % tqs->stqs_count];
+	}
+
+	id = taskq_dispatch(tq, func, arg, flags);
+	if (id)
+		taskq_wait(tq);
+}
+#endif
 
 /*
  * Due to OS X limitations in /dev, we create a symlink for "/dev/zvol" to

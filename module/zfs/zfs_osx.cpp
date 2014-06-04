@@ -145,6 +145,12 @@ void
 system_taskq_init(void)
 {
 
+/* https://github.com/illumos/illumos-gate/blob/7256a34efe9df75b638b9e812912ef7c5c68e208/usr/src/uts/common/os/taskq.c */
+
+	/* system_taskq = taskq_create_common("system_taskq", 0,
+	 system_taskq_size * max_ncpus, minclsyspri, 4, 512, &p0, 0,
+	 TASKQ_DYNAMIC | TASKQ_PREPOPULATE); */
+
     system_taskq = taskq_create("system_taskq",
                                 system_taskq_size * max_ncpus,
                                 minclsyspri, 4, 512,

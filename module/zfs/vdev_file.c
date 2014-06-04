@@ -233,6 +233,10 @@ vdev_file_io_start(zio_t *zio)
         vnode_put(vf->vf_vnode);
     }
 
+/* https://github.com/illumos/illumos-gate/blob/2c1e2b44148432fb7a509dd216a99299b6740250/usr/src/uts/common/fs/zfs/vdev_file.c */
+//	VERIFY3U(taskq_dispatch(system_taskq, vdev_file_io_strategy, bp,
+//							TQ_SLEEP), !=, 0);
+
     if (resid != 0 && zio->io_error == 0)
         zio->io_error = SET_ERROR(ENOSPC);
 

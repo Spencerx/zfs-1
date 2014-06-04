@@ -439,12 +439,20 @@ txg_dispatch_callbacks(dsl_pool_t *dp, uint64_t txg)
 			continue;
 
 		if (tx->tx_commit_cb_taskq == NULL) {
+
+/*
+ * https://github.com/illumos/illumos-gate/blob/69962b5647e4a8b9b14998733b765925381b727e/usr/src/uts/common/fs/zfs/txg.c#L430
+ *
+ * tx->tx_commit_cb_taskq = taskq_create("tx_commit_cb",
+ *	max_ncpus, minclsyspri, max_ncpus, max_ncpus * 2,
+ *	TASKQ_PREPOPULATE);
+ */
 			/*
 			 * Commit callback taskq hasn't been created yet.
 			 */
 			tx->tx_commit_cb_taskq = taskq_create("tx_commit_cb",
-			    100, minclsyspri, max_ncpus, INT_MAX,
-			    TASKQ_THREADS_CPU_PCT | TASKQ_PREPOPULATE);
+			    max_ncpus, minclsyspri, max_ncpus, max_ncpus * 2,
+			    TASKQ_PREPOPULATE);
 		}
 
 		cb_list = kmem_alloc(sizeof (list_t), KM_PUSHPAGE);
