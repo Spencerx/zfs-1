@@ -37,6 +37,8 @@ typedef struct vdev_disk {
     uint64_t	vd_ashift;
 } vdev_disk_t;
 
+extern void vdev_disk_io_strategy(void *);
+
 #define lbtodb(bytes)                   /* calculates (bytes / DEV_BSIZE) */ \
         ((unsigned long long)(bytes) >> DEV_BSHIFT)
 #define ldbtob(db)                      /* calculates (db * DEV_BSIZE) */ \

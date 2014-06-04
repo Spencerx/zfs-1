@@ -40,6 +40,8 @@ typedef struct vdev_file {
     uint32_t	vf_vid;
 } vdev_file_t;
 
+extern int vdev_file_io_strategy(zio_t *);
+
 #ifdef	__cplusplus
 }
 #endif

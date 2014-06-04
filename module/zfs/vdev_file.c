@@ -200,30 +200,52 @@ vdev_file_io_start(zio_t *zio)
 {
     vdev_t *vd = zio->io_vd;
     vdev_file_t *vf = vd->vdev_tsd;
-    ssize_t resid = 0;
+	int error = 0;
 
+	if (!vdev_readable(vd)) {
+		zio->io_error = SET_ERROR(ENXIO);
+		return (ZIO_PIPELINE_CONTINUE);
+	}
 
     if (zio->io_type == ZIO_TYPE_IOCTL) {
 
-        if (!vdev_readable(vd)) {
-            zio->io_error = SET_ERROR(ENXIO);
-            return (ZIO_PIPELINE_CONTINUE);
-        }
-
         switch (zio->io_cmd) {
-        case DKIOCFLUSHWRITECACHE:
-            if (!vnode_getwithvid(vf->vf_vnode, vf->vf_vid)) {
-                zio->io_error = VOP_FSYNC(vf->vf_vnode, FSYNC | FDSYNC,
-                                          kcred, NULL);
-                vnode_put(vf->vf_vnode);
-            }
-            break;
-        default:
-            zio->io_error = SET_ERROR(ENOTSUP);
+			case DKIOCFLUSHWRITECACHE:
+				if (!vnode_getwithvid(vf->vf_vnode, vf->vf_vid)) {
+					zio->io_error = VOP_FSYNC(vf->vf_vnode, FSYNC | FDSYNC,
+											  kcred, NULL);
+					vnode_put(vf->vf_vnode);
+				}
+				break;
+			default:
+				zio->io_error = SET_ERROR(ENOTSUP);
         }
 
         return (ZIO_PIPELINE_CONTINUE);
     }
+
+	if (!zio->io_data || zio->io_size == 0) {
+		zio->io_error = SET_ERROR(ENXIO);
+		return (ZIO_PIPELINE_CONTINUE);
+	}
+
+	/* https://github.com/illumos/illumos-gate/blob/2c1e2b44148432fb7a509dd216a99299b6740250/usr/src/uts/common/fs/zfs/vdev_file.c */
+	if (taskq_dispatch(system_taskq,
+	    vdev_file_io_strategy, zio,
+		TQ_SLEEP) == 0) {
+		zio->io_error = EIO;
+		return ZIO_PIPELINE_CONTINUE;
+	}
+
+    return (ZIO_PIPELINE_STOP);
+}
+
+int
+vdev_file_io_strategy(zio_t *zio)
+{
+    vdev_t *vd = zio->io_vd;
+    vdev_file_t *vf = vd->vdev_tsd;
+    ssize_t resid = 0;
 
     if (!vnode_getwithvid(vf->vf_vnode, vf->vf_vid)) {
         zio->io_error = vn_rdwr(zio->io_type == ZIO_TYPE_READ ?
@@ -233,16 +255,12 @@ vdev_file_io_start(zio_t *zio)
         vnode_put(vf->vf_vnode);
     }
 
-/* https://github.com/illumos/illumos-gate/blob/2c1e2b44148432fb7a509dd216a99299b6740250/usr/src/uts/common/fs/zfs/vdev_file.c */
-//	VERIFY3U(taskq_dispatch(system_taskq, vdev_file_io_strategy, bp,
-//							TQ_SLEEP), !=, 0);
-
     if (resid != 0 && zio->io_error == 0)
         zio->io_error = SET_ERROR(ENOSPC);
 
     zio_interrupt(zio);
 
-    return (ZIO_PIPELINE_STOP);
+	return (0);
 }
 
 

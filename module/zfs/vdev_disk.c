@@ -217,7 +217,6 @@ vdev_disk_io_intr(struct buf *bp, void *arg)
 		zio->io_error = EIO;
 	}
 	buf_free(bp);
-	//zio_next_stage_async(zio);
     zio_interrupt(zio);
 }
 
@@ -237,19 +236,16 @@ vdev_disk_io_start(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
 	vdev_disk_t *dvd = vd->vdev_tsd;
-	struct buf *bp;
 	vfs_context_t context;
-	int flags, error = 0;
+	int error = 0;
 
 	if (zio->io_type == ZIO_TYPE_IOCTL) {
 		zio_vdev_io_bypass(zio);
 
 		/* XXPOLICY */
-		if (vdev_is_dead(vd)) {
+		if (!vdev_readable(vd)) {
 			zio->io_error = ENXIO;
-			//zio_next_stage_async(zio);
 			return (ZIO_PIPELINE_CONTINUE);
-            //return;
 		}
 
 		switch (zio->io_cmd) {
@@ -298,39 +294,77 @@ vdev_disk_io_start(zio_t *zio)
 			zio->io_error = SET_ERROR(ENOTSUP);
 		}
 
-		//zio_next_stage_async(zio);
         return (ZIO_PIPELINE_CONTINUE);
 	}
 
-	if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio) == 0)
-        return (ZIO_PIPELINE_STOP);
-    //		return;
+	if (!vdev_readable(vd)) {
+		zio->io_error = ENXIO;
+		return (ZIO_PIPELINE_CONTINUE);
+	}
 
-	if ((zio = vdev_queue_io(zio)) == NULL)
-        return (ZIO_PIPELINE_CONTINUE);
-    //		return;
+	if (taskq_dispatch(system_taskq,
+	    &vdev_disk_io_strategy, zio,
+	    TQ_SLEEP) == 0) {
+		zio->io_error = ENXIO;
+		return (ZIO_PIPELINE_CONTINUE);
+	}
+
+	return (ZIO_PIPELINE_STOP);
+}
+
+extern void
+vdev_disk_io_strategy(void * arg)
+{
+	zio_t *zio = 0;
+	vdev_t *vd = 0;
+	vdev_disk_t *dvd = 0;
+	struct buf *bp;
+//	vfs_context_t context;
+	int flags, error = 0;
+
+	if (!arg) {
+		IOLog("vdev_disk_io_strategy: failed to get arg\n");
+		IOSleep(100);
+		zio->io_error = ENXIO;
+		zio_interrupt(zio);
+		return;
+	}
+
+	zio = (zio_t *)arg;
+
+	if (!zio) {
+		IOLog("vdev_disk_io_strategy: failed to get zio\n");
+		IOSleep(100);
+		zio->io_error = ENXIO;
+		zio_interrupt(zio);
+		return;
+	}
+
+	vd = zio->io_vd;
+
+	if (!vd) {
+		IOLog("vdev_disk_io_strategy: failed to get vdev\n");
+		IOSleep(100);
+		zio->io_error = ENXIO;
+		zio_interrupt(zio);
+		return;
+	}
+
+	dvd = vd->vdev_tsd;
+
+	if (!dvd) {
+		IOLog("vdev_disk_io_strategy: failed to get dvd\n");
+		IOSleep(100);
+		zio->io_error = ENXIO;
+		zio_interrupt(zio);
+		return;
+	}
 
 	flags = (zio->io_type == ZIO_TYPE_READ ? B_READ : B_WRITE);
 	//flags |= B_NOCACHE;
 
 	if (zio->io_flags & ZIO_FLAG_FAILFAST)
 		flags |= B_FAILFAST;
-
-	/*
-	 * Check the state of this device to see if it has been offlined or
-	 * is in an error state.  If the device was offlined or closed,
-	 * dvd will be NULL and buf_alloc below will fail
-	 */
-	//error = vdev_is_dead(vd) ? ENXIO : vdev_error_inject(vd, zio);
-	if (vdev_is_dead(vd)) {
-        error = ENXIO;
-    }
-
-	if (error) {
-		zio->io_error = error;
-		//zio_next_stage_async(zio);
-		return (ZIO_PIPELINE_CONTINUE);
-	}
 
 	bp = buf_alloc(dvd->vd_devvp);
 
@@ -358,9 +392,14 @@ vdev_disk_io_start(zio_t *zio)
 		vnode_startwrite(dvd->vd_devvp);
 	}
 	error = VNOP_STRATEGY(bp);
-	ASSERT(error == 0);
 
-    return (ZIO_PIPELINE_STOP);
+	if (error != 0) {
+		zio->io_error = error;
+		zio_interrupt(zio);
+		return;
+	}
+
+    return;
 }
 
 static void
