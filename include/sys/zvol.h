@@ -68,7 +68,7 @@ typedef struct zvol_state {
     void        *zv_iokitdev; /* C++ reference to IOKit class */
     uint64_t    zv_openflags; /* Remember flags used at open */
 	char		zv_bsdname[MAXPATHLEN]; /* 'rdiskX' name, use [1] for diskX */
-	zv_taskqs_t	zv_zio_taskq[ZIO_TYPES][ZIO_TASKQ_TYPES];
+/*	zv_taskqs_t	zv_zio_taskq[ZIO_TYPES][ZIO_TASKQ_TYPES]; */
 } zvol_state_t;
 
 enum zfs_soft_state_type {
