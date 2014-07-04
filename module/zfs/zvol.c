@@ -1762,6 +1762,9 @@ zvol_read_iokit(zvol_state_t *zv, uint64_t position,
 	int error = 0;
 	uint64_t offset = 0;
 
+	dprintf("%s position %llu count %llu\n",
+	    "zvol_read_iokit:", position, count);
+
 	if (zv == NULL)
 		return (ENXIO);
 
@@ -1787,9 +1790,8 @@ zvol_read_iokit(zvol_state_t *zv, uint64_t position,
 		if (bytes > volsize - (position + offset))
 			bytes = volsize - (position + offset);
 
-		dprintf("%s %llu offset %llu len %llu bytes %llu\n",
-		    "zvol_read_iokit: position",
-		    position, offset, count, bytes);
+		dprintf("%s position %llu offset %llu count %llu bytes %llu\n",
+		    "zvol_read_iokit:", position, offset, count, bytes);
 
 		error =  dmu_read_iokit(zv->zv_objset, ZVOL_OBJ, &offset,
 		    position, &bytes, iomem);
@@ -1800,7 +1802,9 @@ zvol_read_iokit(zvol_state_t *zv, uint64_t position,
 				error = EIO;
 			break;
 		}
-		count -= MIN(count, DMU_MAX_ACCESS >> 1) - bytes;
+
+		count -= bytes;
+		offset += bytes;
 	}
 	zfs_range_unlock(rl);
 
@@ -1839,8 +1843,8 @@ zvol_write_iokit(zvol_state_t *zv, uint64_t position,
 	}
 #endif
 
-	dprintf("zvol_write_iokit(position %llu offset 0x%llx bytes 0x%llx)\n",
-	    position, offset, count);
+	dprintf("%s position %llu offset %llu bytes %llu)\n",
+	    "zvol_write_iokit:", position, offset, count);
 
 	sync = !(zv->zv_flags & ZVOL_WCE) ||
 	    (zv->zv_objset->os_sync == ZFS_SYNC_ALWAYS);
@@ -1863,11 +1867,15 @@ zvol_write_iokit(zvol_state_t *zv, uint64_t position,
 			break;
 		}
 
+		dprintf("%s position %llu offset %llu count %llu bytes %llu)\n",
+			"zvol_write_iokit:", position, offset, count, bytes);
+
 		error = dmu_write_iokit_dbuf(zv->zv_dbuf, &offset, position,
 		    &bytes, iomem, tx);
 
 		if (error == 0) {
-			count -= MIN(count, DMU_MAX_ACCESS >> 1) + bytes;
+			count -= bytes;
+			offset += bytes;
 			zvol_log_write(zv, tx, off, bytes, sync);
 		}
 		dmu_tx_commit(tx);

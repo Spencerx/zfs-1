@@ -25,6 +25,12 @@ public:
 
 #include <IOKit/storage/IOBlockStorageDevice.h>
 
+struct zvol_context {
+	IOMemoryDescriptor *buffer;
+	UInt64 block;
+	UInt64 nblks;
+};
+
 class net_lundman_zfs_zvol_device : public IOBlockStorageDevice
 {
 	OSDeclareDefaultStructors(net_lundman_zfs_zvol_device)
@@ -32,10 +38,13 @@ class net_lundman_zfs_zvol_device : public IOBlockStorageDevice
 private:
 	net_lundman_zfs_zvol *m_provider;
 	zvol_state_t *zv;
+	IOWorkLoop *zv_workloop;
+	IOCommandGate *zv_commandGate;
 
 public:
 	virtual bool init(zvol_state_t *c_zv,
 	    OSDictionary* properties = 0);
+	virtual void free(void);
 
 	virtual bool attach(IOService* provider);
 	virtual void detach(IOService* provider);
@@ -64,6 +73,12 @@ public:
 	virtual IOReturn reportWriteProtection(bool *isWriteProtected);
 	virtual IOReturn getWriteCacheState(bool *enabled);
 	virtual IOReturn setWriteCacheState(bool enabled);
+
+	IOReturn zvol_io_strategy(zvol_context *,
+	    IOStorageCompletion *);
+	virtual IOReturn doSyncReadWrite(IOMemoryDescriptor *buffer,
+	    UInt64 block, UInt64 nblks,
+	    IOStorageAttributes *attributes);
 	virtual IOReturn doAsyncReadWrite(IOMemoryDescriptor *buffer,
 	    UInt64 block, UInt64 nblks,
 	    IOStorageAttributes *attributes,

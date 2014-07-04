@@ -8,13 +8,14 @@
 
 #include <sys/zvolIO.h>
 #include <IOKit/IOKitKeys.h>
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/IOCommandGate.h>
 #include <IOKit/storage/IOBlockStorageDevice.h>
 #include <IOKit/storage/IOStorageProtocolCharacteristics.h>
 
 /*
  * Device
  */
-
 
 // #define dprintf IOLog
 
@@ -29,6 +30,8 @@ bool
 net_lundman_zfs_zvol_device::init(zvol_state_t *c_zv,
     OSDictionary *properties)
 {
+	IOCommandGate::Action gateAction;
+
 	dprintf("zvolIO_device:init\n");
 	if (super::init(properties) == false)
 	return (false);
@@ -37,9 +40,55 @@ net_lundman_zfs_zvol_device::init(zvol_state_t *c_zv,
 	// Is it safe/ok to keep a pointer reference like this?
 	zv->zv_iokitdev = (void *) this;
 
+	zv_workloop = IOWorkLoop::workLoop();
+
+	if (!zv_workloop)
+		return (false);
+
+	gateAction = OSMemberFunctionCast(
+	    IOCommandGate::Action, this,
+	    &net_lundman_zfs_zvol_device::zvol_io_strategy);
+
+	if (!gateAction) {
+		dprintf("init: gateAction invalid");
+		return (false);
+	}
+
+	zv_commandGate = IOCommandGate::commandGate(this, gateAction);
+
+	if (!zv_commandGate)
+		return (false);
+
+	zv_workloop->addEventSource(zv_commandGate);
+
 	return (true);
 }
 
+void
+net_lundman_zfs_zvol_device::free()
+{
+	dprintf("zvolIO_device:free\n");
+
+	if (zv_workloop) {
+		if (zv_commandGate) {
+			zv_commandGate->disable();
+
+			while (zv_commandGate->onThread()) {
+				IOSleep(10);
+			};
+
+			zv_workloop->removeEventSource(
+			    zv_commandGate);
+			zv_commandGate->release();
+			zv_commandGate = 0;
+		}
+
+		zv_workloop->release();
+		zv_workloop = 0;
+	}
+
+	super::free();
+}
 
 bool
 net_lundman_zfs_zvol_device::attach(IOService* provider)
@@ -221,7 +270,6 @@ net_lundman_zfs_zvol_device::attach(IOService* provider)
 int
 net_lundman_zfs_zvol_device::getBSDName(void)
 {
-	int err = 0;
 	IORegistryEntry *ioregdevice = 0;
 	OSObject *bsdnameosobj = 0;
 	OSString* bsdnameosstr = 0;
@@ -326,18 +374,86 @@ net_lundman_zfs_zvol_device::handleClose(IOService *client,
 }
 
 IOReturn
+net_lundman_zfs_zvol_device::zvol_io_strategy(
+    zvol_context *context,
+    IOStorageCompletion *completion)
+{
+	IOReturn ret = kIOReturnError;
+
+	if (!context || !completion) {
+		return (kIOReturnBadArgument);
+	}
+
+	dprintf("zvol_io_strategy: @block %llu nblks %llu\n",
+	    (buffer->getDirection() == kIODirectionIn ? "Read" : "Write"),
+	    context->block, context->nblks);
+
+	ret = this->doSyncReadWrite(context->buffer,
+	    context->block, context->nblks, 0);
+
+	IOStorage::complete(completion, ret,
+	    (ret != kIOReturnSuccess ? 0 :
+	    (context->nblks * (ZVOL_BSIZE))));
+
+	kmem_free(context, sizeof (zvol_context));
+
+	return (kIOReturnSuccess);
+}
+
+IOReturn
+net_lundman_zfs_zvol_device::doSyncReadWrite(
+    IOMemoryDescriptor *buffer, UInt64 block, UInt64 nblks,
+    IOStorageAttributes *attributes)
+{
+	IOReturn ret = kIOReturnError;
+
+	if (!buffer || nblks == 0)
+		return (kIOReturnBadArgument);
+
+	dprintf("doSyncRW %s off @block %llu nblks %llu: blksz %d\n",
+	    (buffer->getDirection() == kIODirectionIn ? "Read" : "Write"),
+	    block, nblks, (ZVOL_BSIZE));
+
+	if (buffer->getDirection() == kIODirectionIn) {
+		if (zvol_read_iokit(zv,
+		    block * (ZVOL_BSIZE),
+		    nblks * (ZVOL_BSIZE),
+		    (void *)buffer) == 0) {
+			ret = kIOReturnSuccess;
+		}
+	} else {
+		if (zvol_write_iokit(zv,
+		    block * (ZVOL_BSIZE),
+		    nblks * (ZVOL_BSIZE),
+		    (void *)buffer) == 0) {
+			ret = kIOReturnSuccess;
+		}
+	}
+
+	if (ret != kIOReturnSuccess) {
+		dprintf("doSyncRW: operation failed\n");
+	}
+
+	return (ret);
+}
+
+IOReturn
 net_lundman_zfs_zvol_device::doAsyncReadWrite(
     IOMemoryDescriptor *buffer, UInt64 block, UInt64 nblks,
     IOStorageAttributes *attributes, IOStorageCompletion *completion)
 {
-	IODirection direction;
-	IOByteCount actualByteCount;
+	struct zvol_context *context = 0;
+
+	dprintf("doAsyncRW %s off @block %llu nblks %llu: blksz %d\n",
+	    (buffer->getDirection() == kIODirectionIn ? "Read" : "Write"),
+	    block, nblks, (ZVOL_BSIZE));
 
 	// Return errors for incoming I/O if we have been terminated.
 	if (isInactive() == true) {
 		dprintf("asyncReadWrite notActive fail\n");
 		return (kIOReturnNotAttached);
 	}
+
 	// These variables are set in zvol_first_open(), which should have been
 	// called already.
 	if (!zv->zv_objset || !zv->zv_dbuf) {
@@ -345,8 +461,8 @@ net_lundman_zfs_zvol_device::doAsyncReadWrite(
 		return (kIOReturnNotAttached);
 	}
 
-	// Ensure the start block is within the disk’s capacity.
-	if ((block)*(ZVOL_BSIZE) >= zv->zv_volsize) {
+	// Ensure the start block is within the disk's capacity.
+	if ((block) * (ZVOL_BSIZE) >= zv->zv_volsize) {
 		dprintf("asyncReadWrite start block outside volume\n");
 		return (kIOReturnBadArgument);
 	}
@@ -357,47 +473,20 @@ net_lundman_zfs_zvol_device::doAsyncReadWrite(
 		return (kIOReturnBadArgument);
 	}
 
-	// Get the buffer’s direction, whether this is a read or a write.
-	direction = buffer->getDirection();
-	if ((direction != kIODirectionIn) && (direction != kIODirectionOut)) {
-		dprintf("asyncReadWrite kooky direction\n");
-		return (kIOReturnBadArgument);
+	context = (zvol_context *) kmem_alloc(sizeof (zvol_context),
+	    KM_PUSHPAGE);
+
+	if (!context) {
+		dprintf("asyncReadWrite couldn't allocate context\n");
+		return (kIOReturnNoMemory);
 	}
 
-	dprintf("%s offset @block %llu numblocks %llu: blksz %llu\n",
-	    direction == kIODirectionIn ? "Read" : "Write",
-	    block, nblks, (ZVOL_BSIZE));
-	// IOLog("getMediaBlockSize is %llu\n",
-	//	m_provider->getMediaBlockSize());
+	context->block = block;
+	context->nblks = nblks;
 
-	/* Perform the read or write operation through the transport driver. */
-	actualByteCount = (nblks*(ZVOL_BSIZE));
+	context->buffer = buffer;
 
-	if (direction == kIODirectionIn) {
-
-		if (zvol_read_iokit(zv, (block*(ZVOL_BSIZE)),
-		    actualByteCount, (void *)buffer)) {
-
-			actualByteCount = 0;
-		}
-
-	} else {
-
-		if (zvol_write_iokit(zv, (block*(ZVOL_BSIZE)),
-		    actualByteCount, (void *)buffer)) {
-
-			actualByteCount = 0;
-		}
-
-	}
-
-	if (actualByteCount != nblks*(ZVOL_BSIZE))
-		dprintf("Read/Write operation failed\n");
-
-	// Call the completion function.
-	(completion->action)(completion->target, completion->parameter,
-	    kIOReturnSuccess, actualByteCount);
-	return (kIOReturnSuccess);
+	return (zv_commandGate->runCommand(context, completion));
 }
 
 IOReturn

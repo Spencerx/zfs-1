@@ -1360,52 +1360,59 @@ dmu_read_iokit(objset_t *os, uint64_t object, uint64_t *offset,
 {
 	dmu_buf_t **dbp;
 	int numbufs, i, err = 0;
+
+	if (*size > DMU_MAX_ACCESS) {
+		dprintf("dmu_read_iokit: size > DMU_MAX_ACCESS\n");
+		return (EINVAL);
+	}
+
 	/*
 	 * NB: we could do this block-at-a-time, but it's nice
 	 * to be reading in parallel.
 	 */
-	//err = dmu_buf_hold_array(os, object, uio->uio_loffset, size, TRUE, FTAG,
-    //   &numbufs, &dbp);
+	// err = dmu_buf_hold_array(os, object, uio->uio_loffset, size, TRUE, FTAG,
+	//    &numbufs, &dbp);
 	err = dmu_buf_hold_array(os, object, position+*offset, *size, TRUE, FTAG,
 	    &numbufs, &dbp);
 	if (err)
 		return (err);
 
-    dprintf("dmu_read_iokit: memoffset %llu offset %llu size %llu\n",
+	dprintf("dmu_read_iokit: memoffset %llu offset %llu size %llu\n",
            *offset, position+*offset, *size);
 
-	while (*size > 0) {
+	for (i = 0; i < numbufs; i++) {
+		int tocpy;
+		int bufoff;
+		dmu_buf_t *db = dbp[i];
+		uint64_t done;
 
-        for (i = 0; i < numbufs; i++) {
-            int tocpy;
-            int bufoff;
-            dmu_buf_t *db = dbp[i];
-            uint64_t done;
+		ASSERT(size > 0);
 
-            ASSERT(size > 0);
+		// bufoff = uio->uio_loffset - db->db_offset;
+		bufoff = (position+*offset) - db->db_offset;
+		tocpy = (int)MIN(db->db_size - bufoff, *size);
 
-            //bufoff = uio->uio_loffset - db->db_offset;
-            bufoff = (position+*offset) - db->db_offset;
-            tocpy = (int)MIN(db->db_size - bufoff, *size);
+		/*
+		err = uiomove((char *)db->db_data + bufoff, tocpy,
+		UIO_READ, uio);
+		*/
 
-            /*
-              err = uiomove((char *)db->db_data + bufoff, tocpy,
-              UIO_READ, uio);
-            */
+		done = zvolIO_kit_read(iomem,
+		    *offset,
+		    (char *)db->db_data + bufoff,
+		    tocpy);
 
-            done = zvolIO_kit_read(iomem,
-                                   *offset,
-                                   (char *)db->db_data + bufoff,
-                                   tocpy);
+		if (done > 0) {
+			(*offset) += done;
+			(*size) -= done;
+		} else {
+			dprintf("dmu_read_iokit: IO failed\n");
+		}
+	}
 
-            if (done > 0) {
-                (*offset) += done;
-                (*size) -= done;
-            }
+	if (*size > 0)
+		dprintf("dmu_read_iokit: partial IO\n");
 
-            //size -= tocpy;
-        }
-    }
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
 
 	return (err);
@@ -1421,6 +1428,11 @@ dmu_write_iokit_dnode(dnode_t *dn, uint64_t *offset, uint64_t position,
 	int err = 0;
 	int i;
 
+	if (*size > DMU_MAX_ACCESS) {
+		dprintf("dmu_write_iokit_dnode: size > DMU_MAX_ACCESS\n");
+		return (EINVAL);
+	}
+
 	//err = dmu_buf_hold_array_by_dnode(dn, uio->uio_loffset, size,
     //   FALSE, FTAG, &numbufs, &dbp, DMU_READ_PREFETCH);
 	err = dmu_buf_hold_array_by_dnode(dn, *offset+position, *size,
@@ -1428,10 +1440,8 @@ dmu_write_iokit_dnode(dnode_t *dn, uint64_t *offset, uint64_t position,
 	if (err)
 		return (err);
 
-    dprintf("dmu_write_iokit_done: memoffset %llu offset %llu size %llu\n",
-           *offset, *offset + position, *size);
-
-    while(*size > 0) {
+	dprintf("dmu_write_iokit_done: memoffset %llu offset %llu size %llu\n",
+	    *offset, *offset + position, *size);
 
         for (i = 0; i < numbufs; i++) {
             int tocpy;
@@ -1453,12 +1463,6 @@ dmu_write_iokit_dnode(dnode_t *dn, uint64_t *offset, uint64_t position,
                 dmu_buf_will_dirty(db, tx);
 
             /*
-             * XXX uiomove could block forever (eg.nfs-backed
-             * pages).  There needs to be a uiolockdown() function
-             * to lock the pages in memory, so that uiomove won't
-             * block.
-             */
-            /*
               err = uiomove((char *)db->db_data + bufoff, tocpy,
               UIO_WRITE, uio);
             */
@@ -1475,7 +1479,6 @@ dmu_write_iokit_dnode(dnode_t *dn, uint64_t *offset, uint64_t position,
                 *size -= done;
             }
         }
-    }
 
 	dmu_buf_rele_array(dbp, numbufs, FTAG);
 	return (err);
@@ -1492,8 +1495,11 @@ dmu_write_iokit_dbuf(dmu_buf_t *zdb, uint64_t *offset, uint64_t position,
 	dnode_t *dn;
 	int err;
 
-	if (size == 0)
-		return (0);
+	if (size == 0 || *size == 0 ||
+	    *size > DMU_MAX_ACCESS) {
+		dprintf("dmu_write_iokit_dbuf: size == 0 || size > DMU_MAX_ACCESS\n");
+		return (EINVAL);
+	}
 
 	DB_DNODE_ENTER(db);
 	dn = DB_DNODE(db);

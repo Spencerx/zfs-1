@@ -449,24 +449,29 @@ int zvolSetVolsize(zvol_state_t *zv)
     return 0;
 }
 
-uint64_t zvolIO_kit_read(void *iomem, uint64_t offset, char *address, uint64_t len)
+uint64_t zvolIO_kit_read(void *iomem, uint64_t offset,
+    char *address, uint64_t len)
 {
-  IOByteCount done;
-  //IOLog("zvolIO_kit_read offset %p count %llx to offset %llx\n",
-  //    address, len, offset);
-  done=static_cast<IOMemoryDescriptor*>(iomem)->writeBytes(offset,
-                                                           (void *)address,
-                                                           len);
-  return done;
+	IOByteCount done;
+	dprintf("zvolIO_kit_read offset %llu count %llu\n",
+	    len, offset);
+
+	done=static_cast<IOMemoryDescriptor*>(iomem)->writeBytes(offset,
+	    (void *)address, len);
+
+	return done;
 }
 
-uint64_t zvolIO_kit_write(void *iomem, uint64_t offset, char *address, uint64_t len)
+uint64_t zvolIO_kit_write(void *iomem, uint64_t offset,
+    char *address, uint64_t len)
 {
-  IOByteCount done;
-  //IOLog("zvolIO_kit_write offset %p count %llx to offset %llx\n",
-  //    address, len, offset);
-  done=static_cast<IOMemoryDescriptor*>(iomem)->readBytes(offset,
-                                                          (void *)address,
-                                                          len);
-  return done;
+	IOByteCount done;
+
+	dprintf("zvolIO_kit_write offset %llu count %llu\n",
+	    len, offset);
+
+	done=static_cast<IOMemoryDescriptor*>(iomem)->readBytes(offset,
+	    (void *)address, len);
+
+	return done;
 }
