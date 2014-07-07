@@ -33,8 +33,11 @@ static avl_tree_t unique_avl;
 static kmutex_t unique_mtx;
 
 typedef struct unique {
+	uint64_t guard1;
 	avl_node_t un_link;
+	uint64_t guard2;
 	uint64_t un_value;
+	uint64_t guard3;
 } unique_t;
 
 #define	UNIQUE_MASK ((1ULL << UNIQUE_BITS) - 1)
@@ -81,6 +84,8 @@ unique_insert(uint64_t value)
 	avl_index_t idx;
 	unique_t *un = kmem_alloc(sizeof (unique_t), KM_PUSHPAGE);
 
+	un->guard1 = un->guard2 = un->guard3 = 0xdeadc0defeedf00d;
+
 	un->un_value = value;
 
 	mutex_enter(&unique_mtx);
@@ -93,8 +98,21 @@ unique_insert(uint64_t value)
 		mutex_enter(&unique_mtx);
 	}
 
+	if ((un->guard1 != 0xdeadc0defeedf00d) ||
+		(un->guard2 != 0xdeadc0defeedf00d) ||
+		(un->guard3 != 0xdeadc0defeedf00d))
+		panic("unique: guardwords1 modified %llx %llx %llx\n",
+			  un->guard1,un->guard2,un->guard3);
+
 	avl_insert(&unique_avl, un, idx);
 	mutex_exit(&unique_mtx);
+
+	if ((un->guard1 != 0xdeadc0defeedf00d) ||
+		(un->guard2 != 0xdeadc0defeedf00d) ||
+		(un->guard3 != 0xdeadc0defeedf00d))
+		panic("unique: guardwords2 modified %llx %llx %llx\n",
+			  un->guard1,un->guard2,un->guard3);
+
 
 	return (un->un_value);
 }
@@ -109,7 +127,22 @@ unique_remove(uint64_t value)
 	mutex_enter(&unique_mtx);
 	un = avl_find(&unique_avl, &un_tofind, NULL);
 	if (un != NULL) {
+
+		if ((un->guard1 != 0xdeadc0defeedf00d) ||
+			(un->guard2 != 0xdeadc0defeedf00d) ||
+			(un->guard3 != 0xdeadc0defeedf00d))
+			panic("unique: guardwords3 modified %llx %llx %llx\n",
+				  un->guard1,un->guard2,un->guard3);
+
 		avl_remove(&unique_avl, un);
+
+		if ((un->guard1 != 0xdeadc0defeedf00d) ||
+			(un->guard2 != 0xdeadc0defeedf00d) ||
+			(un->guard3 != 0xdeadc0defeedf00d))
+			panic("unique: guardwords4 modified %llx %llx %llx\n",
+				  un->guard1,un->guard2,un->guard3);
+
+
 		kmem_free(un, sizeof (unique_t));
 	}
 	mutex_exit(&unique_mtx);
